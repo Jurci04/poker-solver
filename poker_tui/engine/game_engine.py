@@ -3,7 +3,7 @@ from collections.abc import Mapping
 
 from poker_tui.domain.action import Action
 from poker_tui.domain.deck import Deck
-from poker_tui.domain.enums import ActionType, Street
+from poker_tui.domain.enums import ActionType, PlayerStatus, Street
 from poker_tui.domain.player import Player
 from poker_tui.domain.table import Table
 from poker_tui.engine.betting import BIG_BLIND, SMALL_BLIND, BettingRound, get_legal_actions
@@ -75,9 +75,9 @@ class GameEngine:
         self._state.next_hand()
         self._rotate_dealer()
         self._deck.reset()
+        self._betting = BettingRound(self._table)
         self._post_blinds()
         self._deal_hole_cards()
-        self._betting = BettingRound(self._table)
         self._current_player_idx = self._get_first_to_act()
         self.event_bus.publish(HandStarted(
             hand_number=self._state.hand_number,
@@ -283,6 +283,10 @@ class GameEngine:
                 amount = split + (remainder if i == 0 else 0)
                 w.win_pot(amount)
                 winner_list.append({"name": w.name, "amount": amount})
+
+        for p in self._table.players:
+            if p.stack <= 0 and not p.is_out:
+                p.status = PlayerStatus.OUT
 
         self.event_bus.publish(HandEnded(
             winners=winner_list,

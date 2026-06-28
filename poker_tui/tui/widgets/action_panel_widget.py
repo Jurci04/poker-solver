@@ -19,7 +19,6 @@ class ActionPanelWidget(Static):
             yield Button("Call", id="call", variant="primary")
             yield Button("Bet", id="bet", variant="warning")
             yield Button("Raise", id="raise", variant="warning")
-        with Horizontal(id="amount-row"):
             yield Input(placeholder="Amount", id="amount-input", type="integer")
         with Horizontal(id="result-btns", classes="hidden"):
             yield Static(id="result-text")
@@ -27,7 +26,7 @@ class ActionPanelWidget(Static):
 
     def set_legal_actions(self, actions: list[Action]) -> None:
         self.query_one("#play-btns").remove_class("hidden")
-        self.query_one("#amount-row").remove_class("hidden")
+        self.query_one("#amount-input").remove_class("hidden")
         self.query_one("#result-btns").add_class("hidden")
         legal = {a.action_type for a in actions}
         for atype, btn_id in self.BTN_IDS.items():
@@ -46,7 +45,7 @@ class ActionPanelWidget(Static):
 
     def show_result(self, text: str) -> None:
         self.query_one("#play-btns").add_class("hidden")
-        self.query_one("#amount-row").add_class("hidden")
+        self.query_one("#amount-input").add_class("hidden")
         self.query_one("#result-btns").remove_class("hidden")
         self.query_one("#result-text", Static).update(text)
 

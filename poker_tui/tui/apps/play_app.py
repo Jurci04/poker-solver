@@ -2,7 +2,7 @@ from typing import Any
 
 from textual import on
 from textual.app import App, ComposeResult
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.widgets import Button, Footer, Header, Label
 
 from poker_tui.domain.action import Action
@@ -18,11 +18,11 @@ class PlayApp(App[None]):
     """Textual UI for human play against bots."""
 
     CSS = """
-    Screen { layout: grid; grid-size: 3 2; grid-rows: 4fr 1fr; }
+    Screen { layout: grid; grid-size: 3 3; grid-rows: auto 4fr 1fr; }
+    #info-container { border: solid $primary; padding: 1 2; column-span: 3; height: auto; }
     #table-container { border: solid $primary; padding: 1 2; column-span: 2; }
     #log-container { border: solid $secondary; padding: 1; overflow-y: auto; }
     #action-container { border: solid $accent; padding: 1; column-span: 3; }
-    #street-label { text-style: bold; padding: 0 1; margin-bottom: 1; }
     #opponent-seats { layout: horizontal; height: auto; margin-bottom: 1; }
     #opponent-seats > PlayerSeatWidget { margin: 0 1; min-width: 14; }
     .hidden { display: none; }
@@ -35,12 +35,14 @@ class PlayApp(App[None]):
         self._panel: ActionPanelWidget = ActionPanelWidget()
         self._last_street: Street = Street.PREFLOP
         self._result: dict[str, Any] | None = None
+        self._pending_next: int = 0
         super().__init__()
 
     def compose(self) -> ComposeResult:
         yield Header()
+        with Horizontal(id="info-container"):
+            yield Label(id="game-info")
         with Container(id="table-container"):
-            yield Label(id="street-label")
             yield self._table
         with Container(id="log-container"):
             yield self._log_widget
@@ -50,8 +52,7 @@ class PlayApp(App[None]):
 
     def on_mount(self) -> None:
         self._engine.event_bus.subscribe("hand_ended", self._on_hand_ended)
-        self._engine.init_new_hand()
-        self._log_widget.add_line(f"--- Hand {self._engine.state.hand_number} ---")
+        self._start_new_hand()
         self.set_interval(0.05, self._tick)
         self._refresh()
 
@@ -69,9 +70,12 @@ class PlayApp(App[None]):
 
     def _tick(self) -> None:
         if self._engine.hand_over:
-            if self._result and not self._result.get("_shown"):
-                self._result["_shown"] = True
+            if self._result:
                 self._show_hand_result()
+            elif self._pending_next > 0:
+                self._pending_next -= 1
+                if self._pending_next == 0:
+                    self._start_new_hand()
             self._refresh()
         elif self._engine.waiting_for_human:
             self._panel.set_legal_actions(self._engine.get_legal_actions_for_current())
@@ -85,30 +89,63 @@ class PlayApp(App[None]):
         r = self._result
         if not r:
             return
+        human = next((p for p in self._engine.state.table.players if p.name == "You"), None)
+        if human and human.stack <= 0:
+            self._panel.show_result(
+                "[bold red]You're busted![/]\nGame over — close the window or press Ctrl+C"
+            )
+            self._result = None
+            return
         lines = ["[bold]Hand Over[/]"]
         for w in r["winners"]:
             lines.append(f"  {w['name']} won ${w['amount']}")
         self._panel.show_result("\n".join(lines))
+        self._result = None
+        self._pending_next = 10
 
     def _check_street(self) -> None:
         s = self._engine.state.street
         if s != self._last_street:
             self._last_street = s
-            label = {Street.FLOP: "Flop", Street.TURN: "Turn",
+            label = {Street.PREFLOP: "Preflop", Street.FLOP: "Flop", Street.TURN: "Turn",
                      Street.RIVER: "River", Street.SHOWDOWN: "Showdown"}.get(s)
             if label:
                 self._log_widget.add_line(f"--- {label} ---")
 
     def _refresh(self) -> None:
         self._table.refresh_display()
-        self.query_one("#street-label", Label).update(
-            f"[bold]{self._engine.state.street.value.upper()}[/]"
+        info = self._build_game_info()
+        self.query_one("#game-info", Label).update(info)
+
+    def _build_game_info(self) -> str:
+        state = self._engine.state
+        table = state.table
+        total = state.pot.total
+        street_str = state.street.value.upper()
+        hand = state.hand_number
+        dealer = table.players[table.dealer_position].name
+        active = sum(1 for p in table.players if not p.is_folded and not p.is_out)
+        total_in = sum(1 for p in table.players if not p.is_out)
+        return (
+            f"[bold]#{hand}[/] | {street_str} | "
+            f"[yellow]Pot: ${total}[/] | "
+            f"Players: {active}/{total_in} | "
+            f"[dim]Dealer: {dealer}[/]"
         )
+
+    def _start_new_hand(self) -> None:
+        self._result = None
+        self._pending_next = 0
+        self._engine.init_new_hand()
+        self._log_widget.add_line(f"\n--- Hand {self._engine.state.hand_number} ---")
+        self._last_street = self._engine.state.street
+        self._panel.disable_all()
+        self._refresh()
 
     @on(Button.Pressed)
     def on_button(self, event: Button.Pressed) -> None:
         if event.button.id == "next_hand":
-            self._start_next_hand()
+            self._start_new_hand()
             return
         if not self._engine.waiting_for_human:
             return
@@ -144,10 +181,3 @@ class PlayApp(App[None]):
         self._engine.advance_to_next_player()
         self._refresh()
 
-    def _start_next_hand(self) -> None:
-        self._result = None
-        self._engine.init_new_hand()
-        self._log_widget.add_line(f"\n--- Hand {self._engine.state.hand_number} ---")
-        self._last_street = self._engine.state.street
-        self._panel.set_legal_actions([])
-        self._refresh()

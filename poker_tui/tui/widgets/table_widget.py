@@ -20,24 +20,27 @@ class TableWidget(Static):
         self._seats: dict[str, PlayerSeatWidget] = {}
         self._pot = PotWidget()
         self._community = CommunityCardsWidget()
-        self._has_human = False
 
     def compose(self) -> ComposeResult:
         table = self._engine.state.table
-        self._has_human = any(p.name == "You" for p in table.players)
+        has_human = any(p.name == "You" for p in table.players)
         with Horizontal(id="opponent-seats"):
             for p in table.players:
-                if self._has_human and p.name == "You":
+                if has_human and p.name == "You":
+                    continue
+                if p.is_out:
                     continue
                 sw = PlayerSeatWidget(id=f"seat-{p.name}")
                 self._seats[p.name] = sw
                 yield sw
         yield self._community
         yield self._pot
-        if self._has_human:
-            sw = PlayerSeatWidget(id="seat-You")
-            self._seats["You"] = sw
-            yield sw
+        if has_human:
+            human = next((p for p in table.players if p.name == "You"), None)
+            if human and not human.is_out:
+                sw = PlayerSeatWidget(id="seat-You")
+                self._seats["You"] = sw
+                yield sw
 
     def refresh_display(self) -> None:
         table = self._engine.state.table
