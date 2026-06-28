@@ -20,6 +20,13 @@ class TableWidget(Static):
         self._seats: dict[str, PlayerSeatWidget] = {}
         self._pot = PotWidget()
         self._community = CommunityCardsWidget()
+        self._last_actions: dict[str, str] = {}
+
+    def set_last_action(self, name: str, action: str) -> None:
+        self._last_actions[name] = action
+
+    def clear_actions(self) -> None:
+        self._last_actions.clear()
 
     def compose(self) -> ComposeResult:
         table = self._engine.state.table
@@ -68,5 +75,5 @@ class TableWidget(Static):
                 is_small_blind=p.is_small_blind, is_big_blind=p.is_big_blind,
                 is_active=p.is_active, is_folded=p.is_folded,
                 hole_cards=hole,
-            ), compact=p.name != "You")
+            ), compact=p.name != "You", last_action=self._last_actions.get(p.name))
             sw.styles.background = "green" if p.name == current_name else ""

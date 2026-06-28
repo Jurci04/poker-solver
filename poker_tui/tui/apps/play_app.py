@@ -60,9 +60,7 @@ class PlayApp(App[None]):
     def _on_player_acted(self, event: object) -> None:
         if not isinstance(event, PlayerActed):
             return
-        if event.player_name == "You":
-            return
-        self._log_widget.add_line(f"{event.player_name}: {event.action}")
+        self._table.set_last_action(event.player_name, str(event.action))
 
     def _on_hand_ended(self, event: object) -> None:
         if not isinstance(event, HandEnded):
@@ -104,17 +102,18 @@ class PlayApp(App[None]):
             )
             self._result = None
             return
-        lines = ["[bold]Hand Over[/]"]
+        lines = ["[bold white on blue] HAND OVER [/]"]
         for w in r["winners"]:
-            lines.append(f"  {w['name']} won ${w['amount']}")
+            lines.append(f"  {w['name']} won [bold yellow]${w['amount']}[/]")
         self._panel.show_result("\n".join(lines))
         self._result = None
-        self._pending_next = 10
+        self._pending_next = 15
 
     def _check_street(self) -> None:
         s = self._engine.state.street
         if s != self._last_street:
             self._last_street = s
+            self._table.clear_actions()
             label = {Street.PREFLOP: "Preflop", Street.FLOP: "Flop", Street.TURN: "Turn",
                      Street.RIVER: "River", Street.SHOWDOWN: "Showdown"}.get(s)
             if label:
@@ -144,6 +143,7 @@ class PlayApp(App[None]):
     def _start_new_hand(self) -> None:
         self._result = None
         self._pending_next = 0
+        self._table.clear_actions()
         self._engine.init_new_hand()
         self._log_widget.add_line(f"\n--- Hand {self._engine.state.hand_number} ---")
         self._last_street = self._engine.state.street
@@ -183,9 +183,8 @@ class PlayApp(App[None]):
                 return
             action = match[0]
 
-        self._log_widget.add_line(f"You: {action}")
+        self._table.set_last_action("You", str(action))
         self._engine.handle_human_action(player, action)
         self._panel.disable_all()
         self._engine.advance_to_next_player()
         self._refresh()
-
