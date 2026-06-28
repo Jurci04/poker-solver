@@ -6,15 +6,15 @@ from textual.widgets import Button, Footer, Header, Static
 from poker_tui.domain.enums import PlayerStatus
 from poker_tui.engine.events import HandEnded, PlayerActed
 from poker_tui.simulation.runner import SimulationRunner
-from poker_tui.tui.apps.table_render import board, player_block, update_static
+from poker_tui.tui.apps.table_render import board, players_grid, update_static
 
 
 class ObserveApp(App[None]):
     CSS = """
     Screen { layout: vertical; }
     #status { height: 1; padding: 0 1; }
-    #board { height: 4; border: solid green; content-align: center middle; }
-    #table { height: 1fr; border: solid green; padding: 1 2; }
+    #board { height: 7; border: solid green; content-align: center middle; }
+    #table { height: 1fr; border: solid green; padding: 1 2; overflow-y: auto; }
     #log { height: 6; border: solid gray; padding: 0 1; overflow-y: auto; }
     #controls { height: 3; padding: 0 1; }
     Button { margin-right: 1; }
@@ -127,9 +127,12 @@ class ObserveApp(App[None]):
             self,
             self._last_render,
             "#table",
-            "\n".join(
-                player_block(p, current, self._winners, self._last_actions, True)
-                for p in table.players
+            players_grid(
+                table.players,
+                current,
+                self._winners,
+                self._last_actions,
+                {p.name: True for p in table.players},
             ),
         )
         update_static(self, self._last_render, "#log", "\n".join(self._lines[-6:]))
