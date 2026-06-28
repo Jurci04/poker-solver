@@ -7,7 +7,7 @@ from textual.widgets import Button, Footer, Header, Label
 
 from poker_tui.domain.action import Action
 from poker_tui.domain.enums import ActionType, Street
-from poker_tui.engine.events import HandEnded
+from poker_tui.engine.events import HandEnded, PlayerActed
 from poker_tui.engine.game_engine import GameEngine
 from poker_tui.tui.widgets.action_log_widget import ActionLogWidget
 from poker_tui.tui.widgets.action_panel_widget import ActionPanelWidget
@@ -52,9 +52,17 @@ class PlayApp(App[None]):
 
     def on_mount(self) -> None:
         self._engine.event_bus.subscribe("hand_ended", self._on_hand_ended)
+        self._engine.event_bus.subscribe("player_acted", self._on_player_acted)
         self._start_new_hand()
         self.set_interval(0.05, self._tick)
         self._refresh()
+
+    def _on_player_acted(self, event: object) -> None:
+        if not isinstance(event, PlayerActed):
+            return
+        if event.player_name == "You":
+            return
+        self._log_widget.add_line(f"{event.player_name}: {event.action}")
 
     def _on_hand_ended(self, event: object) -> None:
         if not isinstance(event, HandEnded):
