@@ -1,7 +1,7 @@
 import logging
 import random
 from datetime import datetime
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 
@@ -12,7 +12,7 @@ from poker_tui.engine.game_engine import GameEngine
 from poker_tui.simulation.runner import SimulationRunner
 from poker_tui.storage.json_storage import JsonStorage
 from poker_tui.strategies.base import AbstractStrategy
-from poker_tui.strategies.simple import SimpleStrategy
+from poker_tui.strategies.registry import make_strategy, strategy_names
 
 app = typer.Typer()
 _log = logging.getLogger("poker")
@@ -57,9 +57,6 @@ def _setup_logger(engine: GameEngine, log_dir: str = "data/logs") -> None:
         cards = " ".join(str(c) for c in engine.state.table.community_cards)
         _log.info("Street: %s — Board: %s", e.street.value, cards or "none")
 
-    def _on_pot_updated(e: Any) -> None:
-        pass
-
     def _on_showdown_started(e: Any) -> None:
         _log.info("Showdown — %s", _player_state())
         for p in e.players:
@@ -75,7 +72,6 @@ def _setup_logger(engine: GameEngine, log_dir: str = "data/logs") -> None:
     bus.subscribe("cards_dealt", _on_cards_dealt)
     bus.subscribe("player_acted", _on_player_acted)
     bus.subscribe("street_advanced", _on_street_advanced)
-    bus.subscribe("pot_updated", _on_pot_updated)
     bus.subscribe("showdown_started", _on_showdown_started)
     bus.subscribe("hand_ended", _on_hand_ended)
 
@@ -85,9 +81,10 @@ def _build_game(
     seat: int = 0,
     seed: int | None = None,
     human_name: str = "You",
+    bot_strategy: str = "simple",
 ) -> GameEngine:
     """Create a game engine with one human seat and the rest filled by bots."""
-    strategy = SimpleStrategy()
+    strategy = make_strategy(bot_strategy)
     bot_names = [f"Bot-{i}" for i in range(num_players - 1)]
     all_names = list(bot_names)
     human_idx = min(seat, num_players - 1)
@@ -95,7 +92,12 @@ def _build_game(
 
     strategies = {n: strategy for n in all_names if n != human_name}
     players = [
-        Player(name=n, stack=1000, position=i, strategy_name="bot" if n != human_name else "human")
+        Player(
+            name=n,
+            stack=1000,
+            position=i,
+            strategy_name=bot_strategy if n != human_name else "human",
+        )
         for i, n in enumerate(all_names)
     ]
     return GameEngine(
@@ -106,10 +108,14 @@ def _build_game(
     )
 
 
-def _make_bot_strategies(count: int) -> dict[str, AbstractStrategy]:
-    """Create *count* identical placeholder strategies for bots."""
-    s = SimpleStrategy()
+def _make_bot_strategies(count: int, name: str = "simple") -> dict[str, AbstractStrategy]:
+    s = make_strategy(name)
     return {f"Bot-{i}": s for i in range(count)}
+
+
+def _strategy_error(name: str) -> NoReturn:
+    typer.echo(f"Unknown strategy '{name}'. Available: {strategy_names()}", err=True)
+    raise typer.Exit(2)
 
 
 @app.command()
@@ -117,12 +123,16 @@ def play(
     players: int = typer.Option(6, "--players", help="Number of players"),
     seat: int = typer.Option(0, "--seat", help="Your seat position"),
     seed: int | None = typer.Option(None, "--seed", help="RNG seed"),
+    bot_strategy: str = typer.Option("simple", "--bot-strategy", help="Bot strategy name"),
     debug_show_cards: bool = typer.Option(False, "--debug-show-cards", hidden=True),
 ) -> None:
     """Play poker against bots (always uses Textual UI)."""
     try:
         from poker_tui.tui.apps.play_app import PlayApp
-        engine = _build_game(players, seat, seed)
+        try:
+            engine = _build_game(players, seat, seed, bot_strategy=bot_strategy)
+        except ValueError:
+            _strategy_error(bot_strategy)
         _setup_logger(engine)
         _log.info("=== Session started ===")
         PlayApp(engine=engine, show_all=debug_show_cards).run()
@@ -136,17 +146,20 @@ def observe(
     players: int = typer.Option(6, "--players", help="Number of players"),
     hands: int = typer.Option(100, "--hands", help="Number of hands"),
     seed: int | None = typer.Option(None, "--seed", help="RNG seed"),
+    bot_strategy: str = typer.Option("simple", "--bot-strategy", help="Bot strategy name"),
     visual: bool = typer.Option(False, "--visual", help="Show TUI observer"),
-    debug_show_cards: bool = typer.Option(False, "--debug-show-cards", hidden=True),
 ) -> None:
     """Observe bot-vs-bot games."""
-    strategies = _make_bot_strategies(players)
+    try:
+        strategies = _make_bot_strategies(players, bot_strategy)
+    except ValueError:
+        _strategy_error(bot_strategy)
 
     if visual:
         try:
             from poker_tui.tui.apps.observe_app import ObserveApp
             runner = SimulationRunner(players, hands, strategies, seed, EventBus())
-            ObserveApp(runner=runner, num_hands=hands, show_all=debug_show_cards).run()
+            ObserveApp(runner=runner, num_hands=hands).run()
         except ImportError as e:
             typer.echo(f"TUI not available: {e}", err=True)
             raise typer.Exit(1)
@@ -163,10 +176,14 @@ def simulate(
     hands: int = typer.Option(10000, "--hands", help="Number of hands"),
     seed: int | None = typer.Option(None, "--seed", help="RNG seed"),
     output: str = typer.Option("data/runs/run.json", "--output", help="Output path"),
+    bot_strategy: str = typer.Option("simple", "--bot-strategy", help="Bot strategy name"),
     visual: bool = typer.Option(False, "--visual", help="Show TUI dashboard"),
 ) -> None:
     """Run fast bot-vs-bot simulations."""
-    strategies = _make_bot_strategies(players)
+    try:
+        strategies = _make_bot_strategies(players, bot_strategy)
+    except ValueError:
+        _strategy_error(bot_strategy)
 
     if visual:
         try:

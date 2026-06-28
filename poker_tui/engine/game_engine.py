@@ -14,8 +14,6 @@ from poker_tui.engine.events import (
     HandEnded,
     HandStarted,
     PlayerActed,
-    PlayerTurnStarted,
-    PotUpdated,
     ShowdownStarted,
     StreetAdvanced,
 )
@@ -145,10 +143,6 @@ class GameEngine:
             small_blind=SMALL_BLIND, big_blind=BIG_BLIND,
             dealer_pos=self._table.dealer_position,
         ))
-        self.event_bus.publish(PotUpdated(
-            pot_total=self._state.pot.total,
-            current_bet=self._state.pot.current_bet,
-        ))
 
     def _deal_hole_cards(self) -> None:
         for p in self._table.players:
@@ -198,10 +192,6 @@ class GameEngine:
         self._state.pot.total = sum(p.total_bet_this_hand for p in self._table.players)
         active = [p for p in self._table.players if not p.is_folded and not p.is_out]
         self._state.pot.current_bet = max(p.current_bet for p in active)
-        self.event_bus.publish(PotUpdated(
-            pot_total=self._state.pot.total,
-            current_bet=self._state.pot.current_bet,
-        ))
 
         if action.action_type == ActionType.FOLD and len(self._table.players_in_hand) <= 1:
             self._hand_over = True
@@ -314,11 +304,6 @@ class GameEngine:
         if not legal:
             self._hand_over = True
             return
-
-        self.event_bus.publish(PlayerTurnStarted(
-            player_name=player.name,
-            legal_actions=[a.to_dict() for a in legal],
-        ))
 
         pub = VisibilityFilter.player_state(
             self._table, player, self._state.pot.total, self._state.pot.current_bet,

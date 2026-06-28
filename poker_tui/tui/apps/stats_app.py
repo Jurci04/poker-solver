@@ -1,21 +1,16 @@
+from typing import Any
+
 from textual.app import App, ComposeResult
 from textual.containers import Container
-from textual.widgets import Footer, Header, Label
+from textual.widgets import Footer, Header, Static
 
 from poker_tui.simulation.result import SimulationResult
-from poker_tui.tui.widgets.chart_widget import ChartWidget
-from poker_tui.tui.widgets.stats_widget import StatsWidget
 
 
 class StatsApp(App[None]):
-    """Displays simulation statistics with charts and a summary table."""
-
     CSS = """
     Screen { layout: grid; grid-size: 2 2; }
-    #summary-container { border: solid $primary; padding: 1; }
-    #profit-container { border: solid $secondary; padding: 1; }
-    #winrate-container { border: solid $accent; padding: 1; }
-    #sparkline-container { border: solid $accent; padding: 1; }
+    Static { border: solid green; padding: 1; }
     """
 
     def __init__(self, result: SimulationResult) -> None:
@@ -24,32 +19,48 @@ class StatsApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Container(id="summary-container"):
-            yield StatsWidget(id="summary")
-        with Container(id="profit-container"):
-            yield Label("[bold]Profit[/]")
-            yield ChartWidget(id="profit-chart")
-        with Container(id="winrate-container"):
-            yield Label("[bold]Win Rate[/]")
-            yield ChartWidget(id="winrate-chart")
-        with Container(id="sparkline-container"):
-            yield Label("[bold]Profit History[/]")
-            yield ChartWidget(id="sparkline")
+        yield Container(Static(id="summary"), Static(id="profit"))
+        yield Container(Static(id="winrate"), Static(id="actions"))
         yield Footer()
 
     def on_mount(self) -> None:
-        result = self._result
+        stats = self._result.player_stats
+        self.query_one("#summary", Static).update(self._summary(stats))
+        self.query_one("#profit", Static).update(self._bars("Profit", stats, "profit", money=True))
+        self.query_one("#winrate", Static).update(self._bars("Win Rate", stats, "win_rate"))
+        self.query_one("#actions", Static).update(self._actions())
 
-        self.query_one("#summary", StatsWidget).update_stats(result.player_stats)
+    def _summary(self, stats: dict[str, dict[str, Any]]) -> str:
+        lines = ["[bold]Session Stats[/]"]
+        for name, row in stats.items():
+            lines.append(
+                f"{name}: {row.get('wins', 0)} wins "
+                f"({row.get('win_rate', 0):.1%}), ${row.get('profit', 0):+d}"
+            )
+        return "\n".join(lines)
 
-        profits = {p: result.player_stats[p]["profit"]
-                   for p in result.player_stats}
-        self.query_one("#profit-chart", ChartWidget).show_horizontal_bars(
-            profits, max_width=40
-        )
+    def _bars(
+        self,
+        title: str,
+        stats: dict[str, dict[str, Any]],
+        key: str,
+        money: bool = False,
+    ) -> str:
+        values = {name: float(row.get(key, 0)) for name, row in stats.items()}
+        scale = max((abs(v) for v in values.values()), default=1) or 1
+        lines = [f"[bold]{title}[/]"]
+        for name, value in values.items():
+            bar = "#" * int(abs(value) / scale * 30)
+            color = "green" if value >= 0 else "red"
+            label = f"${value:+.0f}" if money else f"{value:.1%}"
+            lines.append(f"{name}: [{color}]{bar}[/] {label}")
+        return "\n".join(lines)
 
-        rates = {p: result.player_stats[p]["win_rate"]
-                 for p in result.player_stats}
-        self.query_one("#winrate-chart", ChartWidget).show_percentage_bars(
-            rates, max_width=40
-        )
+    def _actions(self) -> str:
+        lines = ["[bold]Actions[/]"]
+        for name, actions in self._result.action_frequencies.items():
+            total = sum(actions.values())
+            if total:
+                parts = [f"{a}:{c}" for a, c in sorted(actions.items())]
+                lines.append(f"{name}: {', '.join(parts)}")
+        return "\n".join(lines)
